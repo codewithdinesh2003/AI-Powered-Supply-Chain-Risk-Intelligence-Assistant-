@@ -1,0 +1,55 @@
+# ── Python virtual environments ───────────────────────────────
+venv/
+.venv/
+env/
+.env/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# ── Secrets / environment files ───────────────────────────────
+.env
+*.env.local
+*.env.production
+
+# ── Build / dist ──────────────────────────────────────────────
+dist/
+build/
+*.egg-info/
+*.egg
+.eggs/
+
+# ── ChromaDB persistent storage ───────────────────────────────
+backend/chroma_db/
+
+# ── Node / frontend ───────────────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ── Docker volumes ────────────────────────────────────────────
+mysql_data/
+
+# ── IDE / OS ──────────────────────────────────────────────────
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# ── Logs ──────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── pytest / coverage ─────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ── mypy / type checkers ──────────────────────────────────────
+.mypy_cache/
+.dmypy.json
+
+# ── Jupyter ───────────────────────────────────────────────────
+.ipynb_checkpoints/
