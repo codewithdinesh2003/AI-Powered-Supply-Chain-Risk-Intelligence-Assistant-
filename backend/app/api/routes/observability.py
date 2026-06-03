@@ -182,17 +182,69 @@ async def get_metrics(
         for r in daily_rows
     ]
 
-    # ── Agent stats from trace JSON (simplified) ──────────────────────
-    # Real agent stats would parse agent_trace JSON blobs.
-    # Placeholder structure — populated by LangSmith in production.
-    agent_stats = [
-        {"agent_name": "retrieval",         "avg_latency_ms": 800,  "total_calls": total_today, "error_rate": 0.0, "avg_tokens": 0},
-        {"agent_name": "supplier_risk",     "avg_latency_ms": 3200, "total_calls": total_today, "error_rate": 0.02, "avg_tokens": 1800},
-        {"agent_name": "shipment_analysis", "avg_latency_ms": 2900, "total_calls": total_today, "error_rate": 0.02, "avg_tokens": 1600},
-        {"agent_name": "inventory_intel",   "avg_latency_ms": 2700, "total_calls": total_today, "error_rate": 0.01, "avg_tokens": 1500},
-        {"agent_name": "recommendation",    "avg_latency_ms": 4100, "total_calls": total_today, "error_rate": 0.03, "avg_tokens": 2200},
-        {"agent_name": "evaluator",         "avg_latency_ms": 2500, "total_calls": total_today, "error_rate": 0.01, "avg_tokens": 1200},
+    # ── Real per-agent latency parsed from stored trace JSON ─────────────
+    AGENT_NAMES = [
+        "retrieval", "supplier_risk", "shipment_analysis",
+        "inventory_intel", "recommendation", "evaluator",
     ]
+    DEFAULTS = {
+        "retrieval": 800, "supplier_risk": 3200,
+        "shipment_analysis": 2900, "inventory_intel": 2700,
+        "recommendation": 4100, "evaluator": 2500,
+    }
+
+    recent_traces_result = await db.execute(
+        select(QuerySession.agent_trace, QuerySession.latency_ms)
+        .where(
+            QuerySession.created_at >= seven_days_ago,
+            QuerySession.agent_trace.is_not(None),
+        )
+        .order_by(QuerySession.created_at.desc())
+        .limit(50)
+    )
+    recent_traces = recent_traces_result.all()
+
+    from collections import defaultdict
+    agent_latencies: dict = defaultdict(list)
+    agent_errors:    dict = defaultdict(int)
+    agent_tokens:    dict = defaultdict(list)
+
+    for row in recent_traces:
+        trace_data = row[0]
+        if not isinstance(trace_data, dict):
+            continue
+        for event in trace_data.get("events", []):
+            agent    = event.get("agent", "")
+            if agent not in AGENT_NAMES:
+                continue
+            elapsed  = event.get("elapsed_ms", 0) or 0
+            tokens   = event.get("tokens_used", 0) or 0
+            evt_type = event.get("type", "")
+            data     = event.get("data", {}) or {}
+            # elapsed may also live inside data dict
+            if elapsed == 0:
+                elapsed = data.get("elapsed_ms", 0) or 0
+            if evt_type == "agent_completed" and elapsed > 0:
+                agent_latencies[agent].append(elapsed)
+            if evt_type == "agent_error":
+                agent_errors[agent] += 1
+            if tokens > 0:
+                agent_tokens[agent].append(tokens)
+
+    agent_stats = []
+    for name in AGENT_NAMES:
+        lats       = agent_latencies[name]
+        toks       = agent_tokens[name]
+        total_calls = len(lats) or total_today
+        err_count  = agent_errors[name]
+        agent_stats.append({
+            "agent_name":     name,
+            "avg_latency_ms": round(sum(lats) / len(lats), 0) if lats else DEFAULTS[name],
+            "total_calls":    total_calls,
+            "error_rate":     round(err_count / max(total_calls, 1), 3),
+            "avg_tokens":     round(sum(toks) / len(toks), 0) if toks else 0,
+            "is_estimated":   len(lats) == 0,
+        })
 
     return ok(
         {

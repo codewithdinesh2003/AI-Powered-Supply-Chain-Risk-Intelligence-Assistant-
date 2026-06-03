@@ -90,7 +90,7 @@ A production-grade, full-stack AI system that converts natural-language supply c
 | OpenAI API Key | — | `gpt-4o` + `text-embedding-3-small` |
 | LangSmith Account | — | Free tier at [smith.langchain.com](https://smith.langchain.com) |
 
-**Estimated API costs per query:** ~$0.05–0.15 USD (6 GPT-4o calls + embeddings)
+**Gateway:** ArshnivLabs (`keygateway.arshnivlabs.com`) — uses `gpt-4o-mini` with `max_tokens=500` per agent.
 
 ---
 
@@ -160,14 +160,22 @@ venv\Scripts\activate          # Windows
 # Install dependencies
 pip install -r requirements.txt
 
+# Copy and configure environment variables  ← REQUIRED BEFORE RUNNING
+cp .env.example .env
+# Edit .env and fill in OPENAI_API_KEY, LANGCHAIN_API_KEY, JWT_SECRET_KEY
+
 # Create the MySQL database
 mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS supply_chain_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
-# Run Alembic migrations
+# Run Alembic migrations  ← REQUIRED: creates all tables
 alembic upgrade head
 
 # Seed initial data
 python scripts/seed_db.py
+
+# Generate sample CSV and ingest into ChromaDB + MySQL
+python data/generate_sample_data.py
+python scripts/ingest_data.py --csv data/supply_chain_data.csv
 
 # Start the API server
 uvicorn app.main:app --reload --port 8000

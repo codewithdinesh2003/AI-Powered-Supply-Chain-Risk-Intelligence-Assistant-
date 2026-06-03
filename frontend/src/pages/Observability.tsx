@@ -76,7 +76,10 @@ export default function Observability() {
             <BarChart data={metrics?.per_agent_stats ?? []} margin={{ left: -20 }}>
               <XAxis dataKey="agent_name" tick={{ fontSize: 11 }} tickFormatter={(v) => v.replace('_', ' ').slice(0, 8)} />
               <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(v: number) => [`${v.toFixed(0)}ms`, 'Avg Latency']} />
+              <Tooltip formatter={(v: number, _name: string, props: any) => [
+                `${props.payload?.is_estimated ? '~' : ''}${(v as number).toFixed(0)}ms`,
+                'Avg Latency',
+              ]} />
               <Bar dataKey="avg_latency_ms" fill="#1E6FD9" radius={[4,4,0,0]} />
             </BarChart>
           </ResponsiveContainer>
