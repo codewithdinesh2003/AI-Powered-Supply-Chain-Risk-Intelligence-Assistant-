@@ -29,7 +29,7 @@ from app.retrieval.vector_store import ChromaVectorStore
 logger = logging.getLogger(__name__)
 
 # Path where BM25 artefacts are stored (relative to backend/)
-_DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+_DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 
 
 # ── BM25 index persistence ────────────────────────────────────────────────────

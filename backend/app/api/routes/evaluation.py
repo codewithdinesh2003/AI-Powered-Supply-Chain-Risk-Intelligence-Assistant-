@@ -33,15 +33,25 @@ def _run_deepeval(query: str, response: str, context: List[str]) -> dict:
         )
         from deepeval.test_case import LLMTestCase
 
+        from app.config import get_settings as _get_settings
+        from deepeval.models import GPTModel
+
+        _s = _get_settings()
+        _judge = GPTModel(
+            model=_s.llm_model,
+            _openai_api_key=_s.openai_api_key,
+            base_url=_s.openai_base_url,
+        )
+
         test_case = LLMTestCase(
             input=query,
             actual_output=response,
             retrieval_context=context[:5],  # cap to 5 docs
         )
         metrics = [
-            AnswerRelevancyMetric(threshold=0.7, model="gpt-4o", async_mode=False),
-            FaithfulnessMetric(threshold=0.8, model="gpt-4o", async_mode=False),
-            ContextualRecallMetric(threshold=0.7, model="gpt-4o", async_mode=False),
+            AnswerRelevancyMetric(threshold=0.7, model=_judge, async_mode=False),
+            FaithfulnessMetric(threshold=0.8, model=_judge, async_mode=False),
+            ContextualRecallMetric(threshold=0.7, model=_judge, async_mode=False),
         ]
         evaluate([test_case], metrics, run_async=False, print_results=False)
 

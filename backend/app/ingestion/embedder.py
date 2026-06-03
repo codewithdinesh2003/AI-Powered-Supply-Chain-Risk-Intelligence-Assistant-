@@ -4,6 +4,8 @@ import asyncio
 import logging
 from typing import List
 
+import httpx
+import urllib3
 from openai import AsyncOpenAI
 from tenacity import (
     retry,
@@ -16,6 +18,9 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+# Suppress the InsecureRequestWarning that fires when SSL verify=False
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 _BATCH_SIZE = 100  # OpenAI recommends ≤ 2048 inputs, 100 is safe for large texts
 
 
@@ -24,7 +29,13 @@ class OpenAIEmbedder:
 
     def __init__(self) -> None:
         settings = get_settings()
-        self._client = AsyncOpenAI(api_key=settings.openai_api_key)
+        self._client = AsyncOpenAI(
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
+            timeout=60.0,
+            max_retries=2,
+            http_client=httpx.AsyncClient(verify=False),   # bypass corporate SSL cert
+        )
         self._model = settings.embedding_model
 
     async def embed_texts(self, texts: List[str]) -> List[List[float]]:

@@ -18,7 +18,7 @@ class IncidentBase(BaseModel):
     transportation_cost: Optional[float] = None
     inventory_level: Optional[float] = None
     demand_forecast: Optional[float] = None
-    impact_score: Optional[float] = Field(default=None, ge=0, le=10)
+    impact_score: Optional[float] = Field(default=None, ge=0)
     resolution_status: str = Field(default="open", pattern="^(open|in_progress|resolved|closed)$")
     occurred_at: Optional[datetime] = None
 
@@ -34,7 +34,7 @@ class IncidentUpdate(BaseModel):
     resolution_status: Optional[str] = None
     resolution_notes: Optional[str] = None
     resolved_at: Optional[datetime] = None
-    impact_score: Optional[float] = Field(default=None, ge=0, le=10)
+    impact_score: Optional[float] = Field(default=None, ge=0)
 
 
 class IncidentResponse(IncidentBase):

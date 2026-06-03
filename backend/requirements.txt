@@ -14,10 +14,12 @@ cryptography==42.0.8
 # Pydantic / Settings
 pydantic==2.7.4
 pydantic-settings==2.3.4
+email-validator==2.2.0
 
 # Auth
 python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
+# passlib 1.7.4 is incompatible with bcrypt 4+ — use bcrypt directly instead
+bcrypt==4.0.1
 
 # LangChain / LangGraph / LangSmith
 langchain==0.2.12
@@ -36,6 +38,7 @@ chromadb==0.5.5
 # Retrieval
 rank-bm25==0.2.2
 sentence-transformers==3.0.1
+rapidfuzz==3.9.7
 
 # Evaluation
 deepeval==0.21.73
@@ -47,6 +50,7 @@ numpy==1.26.4
 # Utilities
 python-dotenv==1.0.1
 tenacity==8.4.1
+json-repair==0.29.0
 
 # Redis (optional job queue)
 redis==5.0.7

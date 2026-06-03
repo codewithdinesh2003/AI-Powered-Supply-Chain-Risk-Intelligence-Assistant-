@@ -41,6 +41,17 @@ class RetrievedDocument:
         }
 
 
+_store_singleton: "ChromaVectorStore | None" = None
+
+
+def get_vector_store() -> "ChromaVectorStore":
+    """Return the module-level singleton — creates it on first call."""
+    global _store_singleton
+    if _store_singleton is None:
+        _store_singleton = ChromaVectorStore()
+    return _store_singleton
+
+
 class ChromaVectorStore:
     """Wraps ChromaDB for persistent supply-chain document storage and search."""
 

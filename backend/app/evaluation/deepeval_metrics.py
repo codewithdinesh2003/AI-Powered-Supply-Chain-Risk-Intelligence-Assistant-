@@ -67,9 +67,10 @@ def _run_metrics_sync(
     model: str,
 ) -> EvalResult:
     """Execute DeepEval metrics synchronously inside a worker thread."""
-    # Ensure OpenAI key is visible in the thread's environment
     settings = get_settings()
-    os.environ.setdefault("OPENAI_API_KEY", settings.openai_api_key)
+    # Expose key to thread environment (some deepeval internals read it directly)
+    os.environ["OPENAI_API_KEY"] = settings.openai_api_key
+    os.environ["OPENAI_API_BASE"] = settings.openai_base_url
 
     result = EvalResult()
 
@@ -80,7 +81,14 @@ def _run_metrics_sync(
             ContextualRecallMetric,
             FaithfulnessMetric,
         )
+        from deepeval.models import GPTModel
         from deepeval.test_case import LLMTestCase
+
+        judge_model = GPTModel(
+            model=settings.llm_model,
+            _openai_api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
+        )
 
         test_case = LLMTestCase(
             input=query,
@@ -89,10 +97,10 @@ def _run_metrics_sync(
         )
 
         metric_specs = [
-            ("answer_relevancy",    AnswerRelevancyMetric(threshold=0.7,    model=model, async_mode=False)),
-            ("faithfulness",        FaithfulnessMetric(threshold=0.8,       model=model, async_mode=False)),
-            ("contextual_recall",   ContextualRecallMetric(threshold=0.7,   model=model, async_mode=False)),
-            ("contextual_precision",ContextualPrecisionMetric(threshold=0.7,model=model, async_mode=False)),
+            ("answer_relevancy",    AnswerRelevancyMetric(threshold=0.7,    model=judge_model, async_mode=False)),
+            ("faithfulness",        FaithfulnessMetric(threshold=0.8,       model=judge_model, async_mode=False)),
+            ("contextual_recall",   ContextualRecallMetric(threshold=0.7,   model=judge_model, async_mode=False)),
+            ("contextual_precision",ContextualPrecisionMetric(threshold=0.7,model=judge_model, async_mode=False)),
         ]
 
         for attr, metric in metric_specs:
@@ -129,8 +137,8 @@ def _run_metrics_sync(
 class SupplyChainEvaluator:
     """Async wrapper around DeepEval metrics for supply chain RAG quality."""
 
-    def __init__(self, model: str = "gpt-4o") -> None:
-        self._model = model
+    def __init__(self, model: str | None = None) -> None:
+        self._model = model or get_settings().llm_model
 
     async def evaluate(
         self,

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import logging
 import time
 import uuid
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -20,6 +23,27 @@ from app.utils.guardrails import validate_query
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+_PIPELINE_TIMEOUT_S = 90   # hard kill if entire pipeline exceeds this
+
+# ── In-memory query cache (TTL 10 min) ───────────────────────────────────────
+_query_cache: Dict[str, Tuple[Dict[str, Any], float]] = {}
+_CACHE_TTL = 600   # seconds
+
+def _cache_key(query: str, filters: Optional[Dict] = None) -> str:
+    raw = query.lower().strip() + json.dumps(filters or {}, sort_keys=True)
+    return hashlib.md5(raw.encode()).hexdigest()
+
+def _get_cached(key: str) -> Optional[Dict[str, Any]]:
+    entry = _query_cache.get(key)
+    if entry and time.time() < entry[1]:
+        return entry[0]
+    if entry:
+        del _query_cache[key]
+    return None
+
+def _set_cache(key: str, data: Dict[str, Any]) -> None:
+    _query_cache[key] = (data, time.time() + _CACHE_TTL)
 
 
 # ── Save session helper ───────────────────────────────────────────────────────
@@ -71,35 +95,75 @@ async def stream_query(
 ):
     """Main query endpoint — streams SSE agent events as the graph executes."""
     validated_query = validate_query(request.query)
-    session_id = request.session_id or str(uuid.uuid4())
-    user_id = current_user.id if current_user else None
-    t0 = time.perf_counter()
+    session_id      = request.session_id or str(uuid.uuid4())
+    user_id         = current_user.id if current_user else None
+    t0              = time.perf_counter()
+    cache_key       = _cache_key(validated_query, request.filters)
 
     async def event_generator():
         all_trace: list = []
         final_event: dict = {}
 
-        try:
-            async for event in run_agent_graph_stream(
-                query=validated_query,
-                session_id=session_id,
-                user_id=user_id or "anonymous",
-                filters=request.filters,
-            ):
-                all_trace.append(event)
-                if event.get("type") == "final_result":
-                    final_event = event
-                yield f"data: {json.dumps(event, default=str)}\n\n"
+        # ── Cache hit: serve instantly without running the pipeline ─────
+        cached = _get_cached(cache_key)
+        if cached:
+            logger.info("Cache hit for query: %s", validated_query[:60])
+            now = datetime.now(timezone.utc).isoformat()
+            # Mark all agents done immediately
+            for agent_name in ("retrieval", "supplier_risk", "shipment_analysis",
+                               "inventory_intel", "recommendation", "evaluator"):
+                yield f"data: {json.dumps({'type':'agent_started','agent':agent_name,'data':{'message':'Serving from cache'},'timestamp':now})}\n\n"
+                yield f"data: {json.dumps({'type':'agent_completed','agent':agent_name,'data':{'message':'Cached result'},'timestamp':now})}\n\n"
 
+            cache_event = {
+                "type":      "cache_hit",
+                "agent":     "system",
+                "data":      cached,
+                "timestamp": now,
+                "from_cache": True,
+            }
+            yield f"data: {json.dumps(cache_event, default=str)}\n\n"
+
+            final_result_event = {
+                "type":             "final_result",
+                "agent":            "system",
+                "data":             cached,
+                "timestamp":        now,
+                "total_elapsed_ms": 0,
+                "tokens_used":      0,
+                "from_cache":       True,
+            }
+            yield f"data: {json.dumps(final_result_event, default=str)}\n\n"
+            yield f"data: {json.dumps({'type':'pipeline_done','agent':'system','data':{},'timestamp':now})}\n\n"
+            return
+
+        # ── Live run with total timeout ───────────────────────────────────
+        try:
+            # asyncio.timeout() is a context manager in Python 3.11+
+            async with asyncio.timeout(_PIPELINE_TIMEOUT_S):
+                async for event in run_agent_graph_stream(
+                    query=validated_query,
+                    session_id=session_id,
+                    user_id=user_id or "anonymous",
+                    filters=request.filters,
+                ):
+                    all_trace.append(event)
+                    if event.get("type") == "final_result":
+                        final_event.update(event)
+                    yield f"data: {json.dumps(event, default=str)}\n\n"
+
+        except TimeoutError:
+            logger.error("Pipeline timed out after %ss", _PIPELINE_TIMEOUT_S)
+            yield f"data: {json.dumps({'type':'error','agent':'system','data':{'error':f'Pipeline timed out after {_PIPELINE_TIMEOUT_S}s'}})}\n\n"
+            return
         except Exception as exc:
             logger.error("Stream error: %s", exc, exc_info=True)
-            error_event = {
-                "type": "error",
-                "agent": "system",
-                "data": {"error": str(exc)},
-            }
-            yield f"data: {json.dumps(error_event)}\n\n"
+            yield f"data: {json.dumps({'type':'error','agent':'system','data':{'error':str(exc)}})}\n\n"
             return
+
+        # Cache the result for future identical queries
+        if final_event:
+            _set_cache(cache_key, final_event.get("data", {}))
 
         # Persist session to MySQL after streaming completes
         try:

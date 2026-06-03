@@ -4,18 +4,22 @@ from __future__ import annotations
 import json
 import logging
 import time
+import urllib3
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+import httpx
 import tiktoken
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from app.config import get_settings
 
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 logger = logging.getLogger(__name__)
 
-_MAX_CONTEXT_CHARS = 10_000   # ~2500 tokens — safe per-agent context window
+_MAX_CONTEXT_CHARS = 3_000   # ~750 tokens — tight but sufficient with filtered context
 _TIKTOKEN_ENC = None
 
 
@@ -37,8 +41,14 @@ def _get_llm(temperature: float = 0.0) -> ChatOpenAI:
     return ChatOpenAI(
         model=settings.llm_model,
         temperature=temperature,
-        model_kwargs={"response_format": {"type": "json_object"}},
+        max_tokens=500,         # gateway hard limit is 500
+        request_timeout=30,     # fail fast if gateway is stuck
+        # response_format omitted — not supported by all gateway proxies;
+        # system prompts already enforce "Output ONLY valid JSON"
         openai_api_key=settings.openai_api_key,
+        openai_api_base=settings.openai_base_url,
+        http_client=httpx.Client(verify=False),
+        http_async_client=httpx.AsyncClient(verify=False),
     )
 
 
@@ -68,16 +78,46 @@ async def llm_json_call(
 
     tokens_used = count_tokens(system_prompt) + count_tokens(user_prompt) + count_tokens(raw)
 
+    # ── Attempt 1: direct parse ───────────────────────────────────────────
     try:
         return json.loads(raw), tokens_used
     except json.JSONDecodeError:
-        # Extract JSON substring if model prepended/appended text
-        start = raw.find("{")
-        end = raw.rfind("}") + 1
-        if start != -1 and end > start:
-            return json.loads(raw[start:end]), tokens_used
-        logger.error("LLM did not return valid JSON: %s", raw[:200])
-        raise
+        pass
+
+    # ── Attempt 2: strip markdown code fences, extract JSON object ────────
+    import re as _re
+    cleaned  = _re.sub(r"```(?:json)?\s*", "", raw).strip().rstrip("`").strip()
+    start    = cleaned.find("{")
+
+    if start != -1:
+        end = cleaned.rfind("}") + 1
+        # If truncated (no closing "}"), pass everything from "{" to json_repair
+        candidate = cleaned[start:end] if end > start else cleaned[start:]
+
+        try:
+            return json.loads(candidate), tokens_used
+        except json.JSONDecodeError:
+            pass
+
+        # ── Attempt 3: json-repair ─────────────────────────────────────────
+        # Handles: missing commas, trailing commas, truncated responses,
+        # single quotes, unescaped characters — all common gateway issues.
+        try:
+            from json_repair import repair_json
+            repaired = repair_json(candidate, return_objects=True)
+            if isinstance(repaired, dict) and repaired:
+                logger.warning(
+                    "json-repair recovered LLM output (truncated=%s, len=%d)",
+                    end <= start, len(candidate),
+                )
+                return repaired, tokens_used
+        except ImportError:
+            logger.warning("json-repair not installed — run: pip install json-repair==0.29.0")
+        except Exception as _repair_exc:
+            logger.warning("json-repair failed on truncated JSON: %s", _repair_exc)
+
+    logger.error("All JSON parse attempts failed. Raw (first 400): %s", raw[:400])
+    raise ValueError(f"LLM returned unparseable JSON: {raw[:200]}")
 
 
 # ── Context builders ─────────────────────────────────────────────────────────

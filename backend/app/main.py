@@ -21,8 +21,36 @@ async def lifespan(app: FastAPI):
         level=settings.log_level.upper(),
         format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
     )
+    # Silence ChromaDB's broken posthog telemetry (harmless version mismatch)
+    logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICAL)
+
     logger.info("Starting Supply Chain Risk Intelligence API (env=%s)", settings.app_env)
     await init_db()
+
+    # ── Preload heavy components once so first request has no cold-start ──
+    try:
+        # 1. ChromaDB — open persistent store and keep connection alive
+        from app.retrieval.vector_store import get_vector_store
+        vs = get_vector_store()
+        logger.info("ChromaDB ready (%d documents).", vs.count())
+
+        # 2. CrossEncoder reranker — downloads model weights once, keeps in RAM
+        from app.retrieval.reranker import _get_model
+        _get_model()
+        logger.info("CrossEncoder reranker ready.")
+
+        # 3. BM25 index — load from pickle into RAM
+        from app.retrieval.bm25_retriever import BM25Retriever
+        bm25 = BM25Retriever()
+        logger.info("BM25 index ready (loaded=%s).", bm25.is_ready)
+
+        # 4. LangGraph — compile the StateGraph (has overhead on first compile)
+        from app.agents.graph import _get_compiled_graph
+        _get_compiled_graph()
+        logger.info("LangGraph compiled and ready.")
+
+    except Exception as exc:
+        logger.warning("Preload step failed (non-fatal): %s", exc)
     yield
     logger.info("Shutting down...")
     await dispose_engine()
@@ -75,6 +103,8 @@ def create_app() -> FastAPI:
         observability,
         query,
         suppliers,
+        upload,
+        etl,
     )
 
     app.include_router(auth.router,          prefix="/api/auth",          tags=["auth"])
@@ -84,6 +114,8 @@ def create_app() -> FastAPI:
     app.include_router(observability.router, prefix="/api/observability", tags=["observability"])
     app.include_router(evaluation.router,    prefix="/api/evaluation",    tags=["evaluation"])
     app.include_router(dashboard.router,     prefix="/api/dashboard",     tags=["dashboard"])
+    app.include_router(upload.router,        prefix="/api/upload",        tags=["upload"])
+    app.include_router(etl.router,           prefix="/api/etl",           tags=["etl"])
 
     # ── Health check ──────────────────────────────────────────────────────
     @app.get("/api/health", tags=["health"])

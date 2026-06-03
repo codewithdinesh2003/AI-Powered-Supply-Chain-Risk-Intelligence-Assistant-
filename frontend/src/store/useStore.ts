@@ -1,18 +1,30 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type {
-  AgentNodeData,
-  AgentStatus,
   AgentTraceEvent,
   QueryResult,
   QuerySessionSummary,
   User,
 } from '../types'
 
-// ── Agent node initial positions (mirrors React Flow layout) ───────────────
+// ── Pipeline agent state (used by AgentPipelinePanel) ────────────────────────
 
-const AGENT_NAMES = [
-  'query',
+export type PipelineAgentStatus = 'idle' | 'running' | 'done' | 'error'
+
+export interface PipelineLogEntry {
+  type: 'info' | 'success' | 'warn' | 'error'
+  text: string
+  ts: string
+}
+
+export interface PipelineAgentState {
+  status: PipelineAgentStatus
+  logs: PipelineLogEntry[]
+}
+
+export type PipelineStatus = 'idle' | 'running' | 'complete' | 'error'
+
+const PIPELINE_AGENT_NAMES = [
   'retrieval',
   'supplier_risk',
   'shipment_analysis',
@@ -21,23 +33,13 @@ const AGENT_NAMES = [
   'evaluator',
 ] as const
 
-type AgentName = typeof AGENT_NAMES[number]
-
-export type AgentStates = Record<AgentName, AgentNodeData>
-
-function initialAgentStates(): AgentStates {
-  return {
-    query:            { label: 'Query Input',                role: 'Natural language query',       status: 'idle' },
-    retrieval:        { label: 'Hybrid Retrieval',           role: 'BM25 + Semantic + Rerank',     status: 'idle' },
-    supplier_risk:    { label: 'Supplier Risk Agent',        role: 'Delivery risk analysis',       status: 'idle' },
-    shipment_analysis:{ label: 'Shipment Analysis Agent',    role: 'Delay prediction',             status: 'idle' },
-    inventory_intel:  { label: 'Inventory Intelligence',     role: 'Stockout detection',           status: 'idle' },
-    recommendation:   { label: 'Recommendation Agent',       role: 'Mitigation strategies',        status: 'idle' },
-    evaluator:        { label: 'Evaluator',                  role: 'Quality assessment',           status: 'idle' },
-  }
+function initialPipelineAgents(): Record<string, PipelineAgentState> {
+  return Object.fromEntries(
+    PIPELINE_AGENT_NAMES.map((name) => [name, { status: 'idle' as const, logs: [] }])
+  )
 }
 
-// ── Store shape ───────────────────────────────────────────────────────────
+// ── Store shape ───────────────────────────────────────────────────────────────
 
 interface StoreState {
   // ── Auth ──────────────────────────────────────────────────────────────
@@ -50,16 +52,24 @@ interface StoreState {
   // ── Query streaming ────────────────────────────────────────────────────
   queryStatus: 'idle' | 'streaming' | 'done' | 'error'
   currentQuery: string
-  agentStates: AgentStates
   streamEvents: AgentTraceEvent[]
   currentResult: QueryResult | null
 
   setQueryStatus: (status: StoreState['queryStatus']) => void
   setCurrentQuery: (q: string) => void
-  updateAgentState: (agent: string, patch: Partial<AgentNodeData>) => void
   pushStreamEvent: (event: AgentTraceEvent) => void
   setCurrentResult: (result: QueryResult | null) => void
-  resetQuery: () => void
+
+  // ── Pipeline visualization (AgentPipelinePanel) ────────────────────────
+  pipelineAgents: Record<string, PipelineAgentState>
+  pipelineStatus: PipelineStatus
+  pipelineElapsedMs: number
+
+  setPipelineAgentStatus: (agent: string, status: PipelineAgentStatus) => void
+  addPipelineLog: (agent: string, log: PipelineLogEntry) => void
+  setPipelineStatus: (status: PipelineStatus) => void
+  setPipelineElapsed: (ms: number) => void
+  resetPipeline: () => void
 
   // ── Query history ──────────────────────────────────────────────────────
   queryHistory: QuerySessionSummary[]
@@ -74,11 +84,11 @@ interface StoreState {
   clearFilters: () => void
 }
 
-// ── Store implementation ──────────────────────────────────────────────────
+// ── Store implementation ──────────────────────────────────────────────────────
 
 export const useStore = create<StoreState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       // ── Auth ────────────────────────────────────────────────────────────
       user: null,
       accessToken: null,
@@ -89,42 +99,58 @@ export const useStore = create<StoreState>()(
       // ── Query streaming ──────────────────────────────────────────────────
       queryStatus: 'idle',
       currentQuery: '',
-      agentStates: initialAgentStates(),
       streamEvents: [],
       currentResult: null,
 
       setQueryStatus: (queryStatus) => set({ queryStatus }),
       setCurrentQuery: (currentQuery) => set({ currentQuery }),
+      pushStreamEvent: (event) =>
+        set((s) => ({ streamEvents: [...s.streamEvents, event] })),
+      setCurrentResult: (currentResult) => set({ currentResult }),
 
-      updateAgentState: (agent, patch) =>
-        set((state) => ({
-          agentStates: {
-            ...state.agentStates,
-            [agent]: {
-              ...state.agentStates[agent as AgentName],
-              ...patch,
-            },
+      // ── Pipeline visualization ───────────────────────────────────────────
+      pipelineAgents: initialPipelineAgents(),
+      pipelineStatus: 'idle',
+      pipelineElapsedMs: 0,
+
+      setPipelineAgentStatus: (agent, status) =>
+        set((s) => ({
+          pipelineAgents: {
+            ...s.pipelineAgents,
+            [agent]: { ...s.pipelineAgents[agent], status },
           },
         })),
 
-      pushStreamEvent: (event) =>
-        set((state) => ({ streamEvents: [...state.streamEvents, event] })),
+      addPipelineLog: (agent, log) =>
+        set((s) => {
+          const prev = s.pipelineAgents[agent]
+          if (!prev) return s
+          return {
+            pipelineAgents: {
+              ...s.pipelineAgents,
+              [agent]: { ...prev, logs: [...prev.logs, log] },
+            },
+          }
+        }),
 
-      setCurrentResult: (currentResult) => set({ currentResult }),
+      setPipelineStatus: (pipelineStatus) => set({ pipelineStatus }),
+      setPipelineElapsed: (pipelineElapsedMs) => set({ pipelineElapsedMs }),
 
-      resetQuery: () =>
+      resetPipeline: () =>
         set({
-          queryStatus: 'idle',
-          agentStates: initialAgentStates(),
-          streamEvents: [],
-          currentResult: null,
+          pipelineAgents:   initialPipelineAgents(),
+          pipelineStatus:   'idle',
+          pipelineElapsedMs: 0,
+          queryStatus:      'idle',
+          streamEvents:     [],
+          currentResult:    null,
         }),
 
       // ── Query history ────────────────────────────────────────────────────
       queryHistory: [],
       setQueryHistory: (queryHistory) => set({ queryHistory }),
       prependHistory: (session) =>
-        set((state) => ({ queryHistory: [session, ...state.queryHistory].slice(0, 50) })),
+        set((s) => ({ queryHistory: [session, ...s.queryHistory].slice(0, 50) })),
 
       // ── UI ────────────────────────────────────────────────────────────────
       sidebarCollapsed: false,
@@ -136,12 +162,11 @@ export const useStore = create<StoreState>()(
     }),
     {
       name: 'scm-intel-store',
-      // Only persist auth + UI preferences — not streaming state
-      partialize: (state) => ({
-        user: state.user,
-        accessToken: state.accessToken,
-        sidebarCollapsed: state.sidebarCollapsed,
-        queryHistory: state.queryHistory,
+      partialize: (s) => ({
+        user:             s.user,
+        accessToken:      s.accessToken,
+        sidebarCollapsed: s.sidebarCollapsed,
+        queryHistory:     s.queryHistory,
       }),
     }
   )

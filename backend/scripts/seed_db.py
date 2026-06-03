@@ -76,7 +76,7 @@ INCIDENTS = [
          supplier_id="SUP-001", warehouse_location="Shanghai, China",
          shipment_status="Delayed", delivery_delay_days=18.0,
          transportation_cost=45000.0, inventory_level=120.0, demand_forecast=800.0,
-         impact_score=9.2, resolution_status=ResolutionStatus.in_progress,
+         impact_score=92.0, resolution_status=ResolutionStatus.in_progress,
          days_ago=5),
     dict(incident_code="INC-00002", title="Supplier Reliability Degradation",
          description="Pacific Rim Manufacturing has missed 4 consecutive delivery windows due to labor disputes.",
@@ -84,7 +84,7 @@ INCIDENTS = [
          supplier_id="SUP-002", warehouse_location="Manila, Philippines",
          shipment_status="Critical", delivery_delay_days=22.0,
          transportation_cost=38000.0, inventory_level=50.0, demand_forecast=500.0,
-         impact_score=9.8, resolution_status=ResolutionStatus.open,
+         impact_score=98.0, resolution_status=ResolutionStatus.open,
          days_ago=3),
     dict(incident_code="INC-00003", title="Inventory Stockout Risk — Electronics",
          description="Current inventory of PCBs at 15% of safety stock level with demand surge of 40%.",
@@ -92,7 +92,7 @@ INCIDENTS = [
          supplier_id="SUP-001", warehouse_location="Los Angeles, USA",
          shipment_status="In-Transit", delivery_delay_days=7.5,
          transportation_cost=12000.0, inventory_level=200.0, demand_forecast=1500.0,
-         impact_score=7.5, resolution_status=ResolutionStatus.open,
+         impact_score=75.0, resolution_status=ResolutionStatus.open,
          days_ago=2),
     dict(incident_code="INC-00004", title="Transportation Cost Spike — Fuel Surcharge",
          description="Fuel surcharges have increased transportation costs by 35% on North America routes.",
@@ -100,7 +100,7 @@ INCIDENTS = [
          supplier_id="SUP-004", warehouse_location="Chicago, USA",
          shipment_status="In-Transit", delivery_delay_days=2.0,
          transportation_cost=28000.0, inventory_level=950.0, demand_forecast=800.0,
-         impact_score=5.0, resolution_status=ResolutionStatus.in_progress,
+         impact_score=50.0, resolution_status=ResolutionStatus.in_progress,
          days_ago=7),
     dict(incident_code="INC-00005", title="Demand Surge — Holiday Season",
          description="Q4 demand forecast exceeds current supply capacity by 65% across all categories.",
@@ -108,7 +108,7 @@ INCIDENTS = [
          supplier_id="SUP-003", warehouse_location="Rotterdam, Netherlands",
          shipment_status="On-Time", delivery_delay_days=0.0,
          transportation_cost=8500.0, inventory_level=300.0, demand_forecast=900.0,
-         impact_score=8.0, resolution_status=ResolutionStatus.open,
+         impact_score=80.0, resolution_status=ResolutionStatus.open,
          days_ago=1),
     dict(incident_code="INC-00006", title="Geopolitical Risk — Trade Route Disruption",
          description="New tariffs imposed on Middle East imports affecting 12% of procurement budget.",
@@ -116,7 +116,7 @@ INCIDENTS = [
          supplier_id="SUP-005", warehouse_location="Dubai, UAE",
          shipment_status="Customs-Hold", delivery_delay_days=11.0,
          transportation_cost=52000.0, inventory_level=180.0, demand_forecast=400.0,
-         impact_score=7.8, resolution_status=ResolutionStatus.open,
+         impact_score=78.0, resolution_status=ResolutionStatus.open,
          days_ago=4),
 ]
 
@@ -158,17 +158,17 @@ async def seed() -> None:
             logger.info("Seeded supplier: %s", s["name"])
 
         # ── Admin user ──────────────────────────────────────────────────────
-        from passlib.context import CryptContext
+        import bcrypt as _bcrypt
 
-        pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
         result = await session.execute(
             select(User).where(User.email == DEFAULT_ADMIN["email"])
         )
         if not result.scalar_one_or_none():
+            hashed = _bcrypt.hashpw(b"Admin@123", _bcrypt.gensalt()).decode("utf-8")
             session.add(
                 User(
                     id=str(uuid.uuid4()),
-                    hashed_password=pwd_ctx.hash("Admin@123"),
+                    hashed_password=hashed,
                     **DEFAULT_ADMIN,
                 )
             )

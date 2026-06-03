@@ -1,0 +1,81 @@
+version: "3.9"
+
+services:
+
+  # ── MySQL 8 ────────────────────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: scm_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: supply_chain_db
+      MYSQL_USER: scm_user
+      MYSQL_PASSWORD: scm_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpass"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ── FastAPI Backend ────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: scm_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    # Merge the .env file with container-specific overrides
+    env_file:
+      - ./backend/.env
+    environment:
+      # Override DB URLs so they target the mysql container, not localhost
+      MYSQL_URL: "mysql+aiomysql://scm_user:scm_pass@mysql:3306/supply_chain_db"
+      MYSQL_URL_SYNC: "mysql+pymysql://scm_user:scm_pass@mysql:3306/supply_chain_db"
+      CHROMA_PERSIST_DIR: "/app/chroma_db"
+      CORS_ORIGINS: "http://localhost:5173,http://frontend:5173,http://localhost:80"
+    volumes:
+      - ./backend:/app          # live-reload source
+      - chroma_data:/app/chroma_db
+      - ./backend/data:/app/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+      --reload-dir /app/app
+
+  # ── React + Vite Frontend ─────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: dev
+    container_name: scm_frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules     # anonymous volume so host node_modules don't shadow container's
+    environment:
+      VITE_API_BASE: "http://localhost:8000"
+    depends_on:
+      - backend
+    command: npm run dev -- --host 0.0.0.0
+
+volumes:
+  mysql_data:
+    driver: local
+  chroma_data:
+    driver: local

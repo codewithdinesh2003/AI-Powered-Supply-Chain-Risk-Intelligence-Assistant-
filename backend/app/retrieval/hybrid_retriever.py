@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from app.ingestion.embedder import OpenAIEmbedder
 from app.retrieval.bm25_retriever import BM25Retriever
 from app.retrieval.reranker import CrossEncoderReranker
-from app.retrieval.vector_store import ChromaVectorStore, RetrievedDocument
+from app.retrieval.vector_store import ChromaVectorStore, RetrievedDocument, get_vector_store
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +109,7 @@ class HybridRetriever:
         self._bm25_k = bm25_k
         self._rerank_pool = rerank_pool
 
-        self._vector_store = ChromaVectorStore()
+        self._vector_store = get_vector_store()   # singleton — no re-open
         self._bm25 = BM25Retriever()
         self._reranker = CrossEncoderReranker()
         self._embedder = OpenAIEmbedder()

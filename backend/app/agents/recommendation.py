@@ -11,45 +11,34 @@ from app.agents.state import AgentState
 
 _SYSTEM_PROMPT = """You are a Supply Chain Mitigation Recommendation Agent.
 
-Your role: Synthesize risk analyses from Supplier, Shipment, and Inventory agents into
-prioritized, concrete, actionable mitigation strategies.
+BE CONCISE — total JSON response must be under 450 tokens.
+Generate exactly 2 recommendations maximum (1 P1 + 1 P2).
+Keep rationale under 20 words. Keep executive_summary under 30 words.
 
-Guidelines:
-- P1 (Critical): Requires action within 24–48 hours. Existential risk to operations.
-- P2 (High):     Requires action within 1–2 weeks. Significant operational impact.
-- P3 (Medium):   Requires action within 30 days. Manageable but needs attention.
-- Each recommendation must be SPECIFIC (name suppliers, routes, SKUs where possible).
-- Timeline must be realistic and quantified.
-- Expected impact must be measurable.
-
-Output ONLY valid JSON with this exact structure:
+Output ONLY valid JSON:
 {
   "recommendations": [
     {
       "id": "REC-001",
-      "priority": "P1|P2|P3",
-      "action": "Concise action title",
-      "rationale": "Why this action is needed, referencing specific data points",
-      "timeline": "e.g. Within 48 hours / By end of week / Within 30 days",
-      "expected_impact": "Quantified benefit, e.g. reduce delay by X days, save $X",
-      "responsible_team": "e.g. Procurement / Logistics / Inventory Planning",
+      "priority": "P1",
+      "action": "Short action title",
+      "rationale": "Why needed, max 20 words",
+      "timeline": "Within 48 hours",
+      "expected_impact": "Specific measurable benefit",
+      "responsible_team": "Procurement",
       "affected_suppliers": ["SUP-XXX"],
-      "risk_domains": ["supplier|shipment|inventory|demand"]
+      "risk_domains": ["supplier"]
     }
   ],
-  "overall_risk_score": 0-100,
-  "risk_breakdown": {
-    "supplier_risk": 0-100,
-    "shipment_risk": 0-100,
-    "inventory_risk": 0-100
-  },
-  "executive_summary": "2–3 sentence non-technical summary suitable for senior management",
-  "immediate_actions_required": true|false,
-  "confidence_score": 0.0-1.0
+  "overall_risk_score": 75,
+  "risk_breakdown": {"supplier_risk": 80, "shipment_risk": 70, "inventory_risk": 75},
+  "executive_summary": "One sentence for management.",
+  "immediate_actions_required": true,
+  "confidence_score": 0.85
 }"""
 
 
-def _summarise_analysis(analysis: Any, label: str) -> str:
+def _summarise(analysis: Any, label: str) -> str:
     if not analysis:
         return f"{label}: No data available.\n"
     try:
@@ -63,45 +52,59 @@ async def recommendation_node(state: AgentState) -> Dict[str, Any]:
     t0 = time.perf_counter()
     agent_name = "recommendation"
 
-    started = trace_event(agent_name, "started")
+    events = [
+        trace_event(agent_name, "started", {"message": "Consolidating 3 risk analyses"}),
+        trace_event(agent_name, "log",     {"message": "Computing composite risk score across all domains", "log_type": "info"}),
+    ]
 
     user_prompt = (
         f"ORIGINAL QUERY: {state['query']}\n\n"
-        f"{_summarise_analysis(state.get('supplier_risk_analysis'), 'SUPPLIER RISK ANALYSIS')}\n"
-        f"{_summarise_analysis(state.get('shipment_analysis'), 'SHIPMENT ANALYSIS')}\n"
-        f"{_summarise_analysis(state.get('inventory_analysis'), 'INVENTORY ANALYSIS')}\n"
-        f"Based on all three analyses above, generate a prioritized set of mitigation recommendations. "
-        f"Ensure recommendations are cross-functional and address root causes, not just symptoms. "
-        f"Return structured JSON."
+        f"{_summarise(state.get('supplier_risk_analysis'),  'SUPPLIER RISK ANALYSIS')}\n"
+        f"{_summarise(state.get('shipment_analysis'),       'SHIPMENT ANALYSIS')}\n"
+        f"{_summarise(state.get('inventory_analysis'),      'INVENTORY ANALYSIS')}\n"
+        f"Generate prioritized mitigation recommendations. Ensure recommendations are cross-functional "
+        f"and address root causes. Return structured JSON."
     )
+
+    events.append(trace_event(agent_name, "log", {"message": "Generating prioritized mitigation strategies", "log_type": "info"}))
 
     try:
         result, tokens = await llm_json_call(_SYSTEM_PROMPT, user_prompt)
         elapsed = int((time.perf_counter() - t0) * 1000)
-        done = trace_event(agent_name, "completed", result, elapsed_ms=elapsed, tokens=tokens)
 
-        recommendations = result.get("recommendations", [])
-        risk_score = float(result.get("overall_risk_score", 50.0))
-        final_response = result.get("executive_summary", "")
+        n_recs      = len(result.get("recommendations", []))
+        risk_score  = float(result.get("overall_risk_score", 50))
+        p1_count    = sum(1 for r in result.get("recommendations", []) if r.get("priority") == "P1")
+        log_type    = "warn" if p1_count > 0 else "success"
+
+        events.append(trace_event(agent_name, "log", {
+            "message": f"{n_recs} recommendations generated — {p1_count} P1 critical actions",
+            "log_type": log_type,
+        }))
+        events.append(trace_event(agent_name, "completed", {
+            "message": f"{n_recs} recommendations (risk score: {risk_score:.0f}/100)",
+            "tokens_used": tokens,
+            "elapsed_ms": elapsed,
+        }))
 
         return {
-            "recommendations": recommendations,
-            "final_response": final_response,
-            "risk_score": risk_score,
-            "current_agent": agent_name,
-            "tokens_used": state["tokens_used"] + tokens,
-            "elapsed_ms": elapsed,
-            "agent_trace": [started, done],
+            "recommendations": result.get("recommendations", []),
+            "final_response":  result.get("executive_summary", ""),
+            "risk_score":      risk_score,
+            "current_agent":   agent_name,
+            "tokens_used":     state["tokens_used"] + tokens,
+            "elapsed_ms":      elapsed,
+            "agent_trace":     events,
         }
 
     except Exception as exc:
         elapsed = int((time.perf_counter() - t0) * 1000)
-        err = trace_event(agent_name, "error", {"error": str(exc)}, elapsed_ms=elapsed)
+        events.append(trace_event(agent_name, "error", {"error": str(exc), "message": str(exc)}, elapsed_ms=elapsed))
         return {
             "recommendations": [],
-            "final_response": f"Recommendation generation failed: {exc}",
-            "risk_score": None,
-            "current_agent": agent_name,
-            "agent_trace": [started, err],
-            "errors": [f"recommendation: {exc}"],
+            "final_response":  f"Recommendation generation failed: {exc}",
+            "risk_score":      None,
+            "current_agent":   agent_name,
+            "agent_trace":     events,
+            "errors":          [f"recommendation: {exc}"],
         }

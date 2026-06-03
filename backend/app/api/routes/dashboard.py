@@ -57,7 +57,10 @@ async def get_kpis(
             )
         )
     ).scalar_one()
-    overall_risk_score = round(float(avg_impact or 50) * 10, 1)  # scale to 0-100
+    # impact_score is stored on 0-100 scale (from ETL risk_score).
+    # Never exceed 100; no multiplier needed.
+    raw_score = float(avg_impact) if avg_impact is not None else 50.0
+    overall_risk_score = round(min(max(raw_score, 0.0), 100.0), 1)
 
     # ── Supplier health ───────────────────────────────────────────────
     total_suppliers = (await db.execute(select(func.count(Supplier.id)))).scalar_one()
@@ -74,17 +77,18 @@ async def get_kpis(
     ).scalar_one()
 
     # ── Shipment on-time rate ─────────────────────────────────────────
+    # Count all records that have a shipment_status (proxy for "shipment records analyzed")
     total_shipments = (
         await db.execute(
             select(func.count(Incident.id)).where(
-                Incident.category.in_(["shipment"])
+                Incident.shipment_status.is_not(None)
             )
         )
     ).scalar_one()
     on_time = (
         await db.execute(
             select(func.count(Incident.id)).where(
-                Incident.shipment_status == "On-Time"
+                Incident.shipment_status.in_(["On-Time", "Early"])
             )
         )
     ).scalar_one()
@@ -142,6 +146,7 @@ async def get_kpis(
                 "total_suppliers": total_suppliers,
             },
             "shipment_on_time_rate": on_time_rate,
+            "shipment_records_analyzed": int(total_shipments),
             "ai_queries": {
                 "today": queries_today,
                 "avg_quality_score": round(float(avg_eval or 0), 2) if avg_eval else None,

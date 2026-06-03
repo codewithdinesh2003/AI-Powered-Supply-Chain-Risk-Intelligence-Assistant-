@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, Building2, Package, TrendingUp } from 'lucide-react'
+import { AlertTriangle, Building2, Package, TrendingUp, Upload } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { dashboardApi } from '../api/client'
 import { Card, KPICard, SectionHeader } from '../components/ui/Card'
 import { SeverityBadge } from '../components/ui/Badge'
@@ -42,6 +43,7 @@ const ALERT_COLUMNS = [
 ]
 
 export default function Dashboard() {
+  const navigate = useNavigate()
   const { data: kpis, isLoading } = useQuery({
     queryKey: ['dashboard-kpis'],
     queryFn: dashboardApi.kpis,
@@ -59,6 +61,17 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* ── Page header with Upload shortcut ── */}
+      <div className="flex items-center justify-end">
+        <button
+          onClick={() => navigate('/data-sources')}
+          className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-slate-600 hover:text-accent-blue hover:border-accent-blue text-sm font-medium transition-colors shadow-sm"
+        >
+          <Upload size={15} />
+          Upload CSV
+        </button>
+      </div>
+
       {/* ── KPI Row ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard
@@ -94,7 +107,7 @@ export default function Dashboard() {
         <KPICard
           title="Shipment On-Time Rate"
           value={`${kpis?.shipment_on_time_rate ?? 0}%`}
-          subtitle={`${kpis?.ai_queries.today ?? 0} AI queries today`}
+          subtitle={`Based on ${(kpis as any)?.shipment_records_analyzed ?? 0} shipment records`}
           icon={<Package size={18} />}
           valueColor={(kpis?.shipment_on_time_rate ?? 100) < 70 ? 'text-orange-500' : 'text-green-600'}
         />

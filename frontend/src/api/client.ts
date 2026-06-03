@@ -144,6 +144,109 @@ export const evaluationApi = {
     unwrap<EvaluationScores[]>(api.get('/evaluation/results', { params: { skip, limit } })),
 }
 
+// ── Upload ────────────────────────────────────────────────────────────────
+
+export interface UploadJob {
+  job_id: string
+  filename: string
+  status: 'pending' | 'processing' | 'completed' | 'failed'
+  step: string
+  progress: number
+  total_records: number
+  records_processed: number
+  suppliers_detected: number
+  errors: string[]
+  created_at: string
+  completed_at: string | null
+}
+
+export const uploadApi = {
+  uploadCSV: async (file: File): Promise<{ job_id: string; status: string; message: string }> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await api.post('/upload/csv', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return (res.data as any).data
+  },
+  status:  (jobId: string) => unwrap<UploadJob>(api.get(`/upload/status/${jobId}`)),
+  history: ()              => unwrap<UploadJob[]>(api.get('/upload/history')),
+}
+
+// ── ETL ───────────────────────────────────────────────────────────────────
+
+export interface FieldMappingSpec {
+  source_column: string | null
+  transform: 'direct' | 'derive' | 'divide_by_100' | 'negate' | 'date_parse' | 'slugify'
+  derive_formula: string | null
+  confidence: number
+}
+
+export interface DetectionResult {
+  temp_file_id: string
+  filename: string
+  row_count: number
+  detected_mapping: {
+    mappings: Record<string, FieldMappingSpec>
+    missing_fields: string[]
+    notes: string
+    source_columns: string[]
+  }
+  saved_mapping: Record<string, unknown> | null
+}
+
+export interface ETLJob {
+  job_id: string
+  status: 'pending' | 'processing' | 'completed' | 'failed'
+  step: string
+  progress: number
+  records_processed: number
+  suppliers_detected: number
+  errors: string[]
+  result: Record<string, unknown> | null
+  created_at: string
+}
+
+export interface CompanyMapping {
+  id: string
+  company_id: string
+  company_name: string
+  mapping_config: Record<string, FieldMappingSpec>
+  source_columns: string[]
+  confidence_score: number
+  created_at: string
+  last_used_at: string | null
+}
+
+export const etlApi = {
+  detect: async (file: File): Promise<DetectionResult> => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await api.post('/etl/detect', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+    return (res.data as any).data
+  },
+
+  preview: (tempFileId: string, mapping: Record<string, FieldMappingSpec>) =>
+    unwrap<{ rows: Record<string, unknown>[]; count: number }>(
+      api.post('/etl/preview', { temp_file_id: tempFileId, mapping })
+    ),
+
+  run: (tempFileId: string, mapping: Record<string, FieldMappingSpec>,
+        companyId: string, companyName: string, saveMapping: boolean) =>
+    unwrap<{ job_id: string; status: string; message: string }>(
+      api.post('/etl/run', {
+        temp_file_id: tempFileId, mapping,
+        company_id: companyId, company_name: companyName, save_mapping: saveMapping,
+      })
+    ),
+
+  jobStatus: (jobId: string) => unwrap<ETLJob>(api.get(`/etl/jobs/${jobId}`)),
+
+  listMappings: ()              => unwrap<CompanyMapping[]>(api.get('/etl/mappings')),
+  saveMapping:  (data: unknown) => unwrap<{ id: string }>(api.post('/etl/mappings', data)),
+  deleteMapping:(id: string)    => api.delete(`/etl/mappings/${id}`),
+}
+
 // ── SSE stream helper ─────────────────────────────────────────────────────
 
 export function createQueryStream(

@@ -18,6 +18,7 @@ class Settings(BaseSettings):
 
     # ── OpenAI ───────────────────────────────────────────────
     openai_api_key: str
+    openai_base_url: str = "https://keygateway.arshnivlabs.com/v1"
 
     # ── LangSmith ────────────────────────────────────────────
     langchain_api_key: str = ""
@@ -49,7 +50,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # ── LLM Model Selection ───────────────────────────────────
-    llm_model: str = "gpt-4o"
+    llm_model: str = "gpt-4o-mini"
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
 

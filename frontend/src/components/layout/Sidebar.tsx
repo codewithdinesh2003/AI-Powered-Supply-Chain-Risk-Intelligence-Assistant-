@@ -3,20 +3,24 @@ import {
   Activity,
   AlertTriangle,
   Building2,
+  Database,
   GitBranch,
   Home,
   Settings,
   Terminal,
   Zap,
 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { clsx } from 'clsx'
 import { useStore } from '../../store/useStore'
+import { dashboardApi } from '../../api/client'
 
 const NAV_ITEMS = [
   { to: '/',              label: 'Dashboard',    icon: Home,          exact: true },
   { to: '/query',         label: 'Query Console',icon: Terminal,      exact: false },
   { to: '/incidents',     label: 'Incidents',    icon: AlertTriangle, exact: false },
   { to: '/suppliers',     label: 'Suppliers',    icon: Building2,     exact: false },
+  { to: '/data-sources',  label: 'Data Sources', icon: Database,      exact: false },
   { to: '/observability', label: 'Observability',icon: Activity,      exact: false },
   { to: '/architecture',  label: 'Architecture', icon: GitBranch,     exact: false },
   { to: '/settings',      label: 'Settings',     icon: Settings,      exact: false },
@@ -33,15 +37,23 @@ function RiskBadge({ score }: { score: number }) {
 }
 
 export function Sidebar() {
-  const { sidebarCollapsed, toggleSidebar, user, currentResult } = useStore((s) => ({
+  const { sidebarCollapsed, toggleSidebar, user } = useStore((s) => ({
     sidebarCollapsed: s.sidebarCollapsed,
     toggleSidebar: s.toggleSidebar,
     user: s.user,
-    currentResult: s.currentResult,
   }))
   const location = useLocation()
 
-  const riskScore = currentResult?.risk_score ?? 42
+  // Fix 8: use dashboard KPI score (TanStack Query caches; no extra network request
+  // if Dashboard page has already fetched with the same ['dashboard-kpis'] key)
+  const { data: kpis } = useQuery({
+    queryKey: ['dashboard-kpis'],
+    queryFn: dashboardApi.kpis,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  })
+
+  const riskScore = kpis?.overall_risk_score ?? 0
 
   return (
     <aside

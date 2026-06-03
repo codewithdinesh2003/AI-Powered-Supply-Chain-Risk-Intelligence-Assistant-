@@ -35,6 +35,42 @@ def _apply_filters(stmt, severity, category, supplier_ref, warehouse, resolution
     return stmt
 
 
+# ── Static routes MUST come before /{incident_id} to avoid being shadowed ────
+
+@router.get("/stats/summary")
+async def incident_stats(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    total = (await db.execute(select(func.count(Incident.id)))).scalar_one()
+    open_count = (
+        await db.execute(
+            select(func.count(Incident.id)).where(
+                Incident.resolution_status.in_(
+                    [ResolutionStatus.open, ResolutionStatus.in_progress]
+                )
+            )
+        )
+    ).scalar_one()
+
+    severity_rows = (
+        await db.execute(
+            select(Incident.severity, func.count(Incident.id)).group_by(Incident.severity)
+        )
+    ).all()
+    severity_counts = {row[0].value: row[1] for row in severity_rows}
+
+    return ok(
+        {
+            "total": total,
+            "open": open_count,
+            "by_severity": severity_counts,
+        }
+    )
+
+
+# ── Collection endpoints ──────────────────────────────────────────────────────
+
 @router.get("")
 async def list_incidents(
     skip: int = Query(0, ge=0),
@@ -67,19 +103,6 @@ async def list_incidents(
     )
 
 
-@router.get("/{incident_id}")
-async def get_incident(
-    incident_id: str,
-    db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
-):
-    result = await db.execute(select(Incident).where(Incident.id == incident_id))
-    incident = result.scalar_one_or_none()
-    if incident is None:
-        raise HTTPException(status_code=404, detail="Incident not found.")
-    return ok(IncidentResponse.model_validate(incident).model_dump())
-
-
 @router.post("", status_code=201)
 async def create_incident(
     req: IncidentCreate,
@@ -102,6 +125,21 @@ async def create_incident(
     db.add(incident)
     await db.commit()
     await db.refresh(incident)
+    return ok(IncidentResponse.model_validate(incident).model_dump())
+
+
+# ── Single-resource endpoints (parameterised — must come AFTER static routes) ─
+
+@router.get("/{incident_id}")
+async def get_incident(
+    incident_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    result = await db.execute(select(Incident).where(Incident.id == incident_id))
+    incident = result.scalar_one_or_none()
+    if incident is None:
+        raise HTTPException(status_code=404, detail="Incident not found.")
     return ok(IncidentResponse.model_validate(incident).model_dump())
 
 
@@ -141,36 +179,3 @@ async def delete_incident(
         raise HTTPException(status_code=404, detail="Incident not found.")
     await db.delete(incident)
     await db.commit()
-
-
-@router.get("/stats/summary")
-async def incident_stats(
-    db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
-):
-    total = (await db.execute(select(func.count(Incident.id)))).scalar_one()
-    open_count = (
-        await db.execute(
-            select(func.count(Incident.id)).where(
-                Incident.resolution_status.in_(
-                    [ResolutionStatus.open, ResolutionStatus.in_progress]
-                )
-            )
-        )
-    ).scalar_one()
-
-    # Severity breakdown
-    severity_rows = (
-        await db.execute(
-            select(Incident.severity, func.count(Incident.id)).group_by(Incident.severity)
-        )
-    ).all()
-    severity_counts = {row[0].value: row[1] for row in severity_rows}
-
-    return ok(
-        {
-            "total": total,
-            "open": open_count,
-            "by_severity": severity_counts,
-        }
-    )

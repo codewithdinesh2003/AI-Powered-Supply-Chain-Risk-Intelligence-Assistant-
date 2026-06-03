@@ -65,26 +65,56 @@ def _format_run(run: Any) -> Dict[str, Any]:
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
+async def _local_runs_fallback(db: AsyncSession, limit: int) -> List[Dict[str, Any]]:
+    """Build a run-list from local MySQL query_sessions when LangSmith is unavailable."""
+    result = await db.execute(
+        select(QuerySession).order_by(QuerySession.created_at.desc()).limit(limit)
+    )
+    sessions = result.scalars().all()
+    return [
+        {
+            "run_id": s.langsmith_run_id or s.session_id,
+            "name": "supply-chain-query",
+            "status": "success" if s.evaluation_score is not None else "completed",
+            "start_time": s.created_at.isoformat() if s.created_at else None,
+            "end_time": None,
+            "latency_ms": s.latency_ms,
+            "total_tokens": s.tokens_used,
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "query_snippet": (s.query_text[:80] + "…") if s.query_text and len(s.query_text) > 80 else s.query_text,
+            "error": None,
+            "source": "local_db",
+        }
+        for s in sessions
+    ]
+
+
 @router.get("/runs")
 async def get_runs(
     limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     client = _ls_client()
-    if client is None:
-        return ok([], meta={"message": "LangSmith not configured"})
 
-    try:
-        settings = get_settings()
-        runs = list(client.list_runs(
-            project_name=settings.langchain_project,
-            limit=limit,
-            execution_order=1,  # top-level runs only
-        ))
-        return ok([_format_run(r) for r in runs], meta={"count": len(runs)})
-    except Exception as exc:
-        logger.warning("LangSmith list_runs failed: %s", exc)
-        return ok([], meta={"error": str(exc)})
+    # Try LangSmith first
+    if client is not None:
+        try:
+            settings = get_settings()
+            # execution_order removed — not valid in langsmith 0.1.x
+            runs = list(client.list_runs(
+                project_name=settings.langchain_project,
+                limit=limit,
+            ))
+            if runs:
+                return ok([_format_run(r) for r in runs], meta={"count": len(runs), "source": "langsmith"})
+        except Exception as exc:
+            logger.warning("LangSmith list_runs failed: %s", exc)
+
+    # Fall back to local MySQL query_sessions
+    local = await _local_runs_fallback(db, limit)
+    return ok(local, meta={"count": len(local), "source": "local_db"})
 
 
 @router.get("/metrics")

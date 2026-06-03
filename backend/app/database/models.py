@@ -293,3 +293,25 @@ class EvaluationResult(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
+
+
+class CompanyMapping(Base):
+    """Saved LLM-detected column mappings per company for automatic re-use."""
+
+    __tablename__ = "company_mappings"
+
+    id: Mapped[str] = mapped_column(CHAR(36), primary_key=True, default=_uuid)
+    company_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    company_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    mapping_config: Mapped[dict] = mapped_column(JSON, nullable=False)
+    source_columns: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    confidence_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    created_by_user_id: Mapped[Optional[str]] = mapped_column(
+        CHAR(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (UniqueConstraint("company_id", name="uq_company_mappings_company_id"),)
