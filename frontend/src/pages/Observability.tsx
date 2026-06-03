@@ -1,7 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { Activity, Clock, DollarSign, Zap } from 'lucide-react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid } from 'recharts'
-import { observabilityApi } from '../api/client'
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid,
+  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+} from 'recharts'
+import { evaluationApi, observabilityApi } from '../api/client'
 import { Card, KPICard, SectionHeader } from '../components/ui/Card'
 import { PageLoader } from '../components/ui/Spinner'
 import { Table } from '../components/ui/Table'
@@ -31,8 +34,27 @@ const RUN_COLUMNS = [
 export default function Observability() {
   const { data: metrics, isLoading } = useQuery({ queryKey: ['obs-metrics'], queryFn: observabilityApi.metrics, refetchInterval: 60_000 })
   const { data: runs = [] } = useQuery({ queryKey: ['ls-runs'], queryFn: () => observabilityApi.runs(30) })
+  const { data: evalResults = [] } = useQuery({ queryKey: ['eval-results'], queryFn: () => evaluationApi.results(0, 10), refetchInterval: 60_000 })
 
   if (isLoading) return <PageLoader label="Loading observatory…" />
+
+  // Radar chart data — average DeepEval scores across recent evaluations
+  const avgMetrics = (evalResults as any[]).reduce(
+    (acc, r) => {
+      if (r.answer_relevancy != null)  acc.ar    += r.answer_relevancy
+      if (r.faithfulness != null)      acc.fa    += r.faithfulness
+      if (r.contextual_recall != null) acc.cr    += r.contextual_recall
+      acc.count++
+      return acc
+    },
+    { ar: 0, fa: 0, cr: 0, count: 0 }
+  )
+  const n = avgMetrics.count || 1
+  const radarData = [
+    { metric: 'Answer Relevancy',  score: +(avgMetrics.ar / n).toFixed(3) },
+    { metric: 'Faithfulness',      score: +(avgMetrics.fa / n).toFixed(3) },
+    { metric: 'Contextual Recall', score: +(avgMetrics.cr / n).toFixed(3) },
+  ]
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -80,6 +102,63 @@ export default function Observability() {
           <SectionHeader title="Recent AI Decisions" subtitle="LangSmith trace log" />
         </div>
         <Table columns={RUN_COLUMNS as any} data={runs as any[]} emptyMessage="No LangSmith runs available — check LANGCHAIN_API_KEY." />
+      </Card>
+
+      {/* ── Fix 4: Evaluation quality section ── */}
+      <Card>
+        <div className="pb-4 border-b border-slate-100 mb-5">
+          <SectionHeader
+            title="Recommendation Quality"
+            subtitle="DeepEval RAG metrics — averaged across recent evaluations"
+          />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Radar chart */}
+          <div>
+            <p className="text-xs font-medium text-slate-500 mb-3 uppercase tracking-wider">RAG Quality Metrics</p>
+            <ResponsiveContainer width="100%" height={220}>
+              <RadarChart data={radarData}>
+                <PolarGrid stroke="#e2e8f0" />
+                <PolarAngleAxis dataKey="metric" tick={{ fontSize: 11 }} />
+                <PolarRadiusAxis angle={30} domain={[0, 1]} tick={{ fontSize: 9 }} />
+                <Radar name="Score" dataKey="score" stroke="#1E6FD9" fill="#1E6FD9" fillOpacity={0.2} />
+                <Tooltip formatter={(v: number) => [v.toFixed(2), 'Score']} />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* LLM Judge verdict table */}
+          <div>
+            <p className="text-xs font-medium text-slate-500 mb-3 uppercase tracking-wider">LLM Judge Verdicts (recent 10)</p>
+            <div className="space-y-2">
+              {(evalResults as any[]).slice(0, 5).map((r: any, i: number) => (
+                <div key={i} className="flex items-center justify-between py-2 border-b border-slate-50">
+                  <span className="text-xs text-slate-500 font-mono truncate max-w-32">
+                    {r.session_id?.slice(0, 8)}…
+                  </span>
+                  <div className="flex items-center gap-3">
+                    {r.answer_relevancy != null && (
+                      <span className="text-xs text-slate-500">
+                        Rel: <strong>{r.answer_relevancy?.toFixed(2)}</strong>
+                      </span>
+                    )}
+                    <Badge variant={
+                      r.judge_verdict === 'APPROVED' ? 'low' :
+                      r.judge_verdict === 'REJECTED' ? 'critical' : 'medium'
+                    }>
+                      {r.judge_verdict ?? '—'}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+              {(evalResults as any[]).length === 0 && (
+                <p className="text-slate-400 text-sm text-center py-6">
+                  No evaluation results yet — run a query first.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
       </Card>
     </div>
   )

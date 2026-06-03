@@ -9,53 +9,22 @@ from langsmith import traceable
 from app.agents._common import llm_json_call, trace_event
 from app.agents.state import AgentState
 
-_SYSTEM_PROMPT = """You are a Supply Chain Mitigation Recommendation Agent.
+_SYSTEM_PROMPT = """You are a Supply Chain Mitigation Agent.
+Output ONLY valid JSON under 450 tokens total.
+Generate exactly 3 recommendations.
+Keep ALL text fields under 12 words each.
 
-Generate 3 prioritized recommendations (P1 + P2 + P3). Be concise.
-Each rationale: max 15 words. executive_summary: max 25 words.
-Total JSON response MUST be under 490 tokens.
-
-Output ONLY valid JSON:
 {
   "recommendations": [
-    {
-      "id": "REC-001",
-      "priority": "P1",
-      "action": "Concise action title",
-      "rationale": "Why critical, max 15 words",
-      "timeline": "Within 48 hours",
-      "expected_impact": "Measurable benefit",
-      "responsible_team": "Procurement",
-      "affected_suppliers": ["SUP-XXX"],
-      "risk_domains": ["supplier"]
-    },
-    {
-      "id": "REC-002",
-      "priority": "P2",
-      "action": "Second action",
-      "rationale": "Why needed, max 15 words",
-      "timeline": "Within 1 week",
-      "expected_impact": "Benefit description",
-      "responsible_team": "Logistics",
-      "affected_suppliers": [],
-      "risk_domains": ["shipment"]
-    },
-    {
-      "id": "REC-003",
-      "priority": "P3",
-      "action": "Third action",
-      "rationale": "Preventive measure, max 15 words",
-      "timeline": "Within 30 days",
-      "expected_impact": "Long-term benefit",
-      "responsible_team": "Planning",
-      "affected_suppliers": [],
-      "risk_domains": ["inventory"]
-    }
+    {"id":"REC-001","priority":"P1","action":"<12 words","rationale":"<12 words",
+     "timeline":"48 hours","expected_impact":"<12 words","responsible_team":"Logistics"},
+    {"id":"REC-002","priority":"P2","action":"<12 words","rationale":"<12 words",
+     "timeline":"1 week","expected_impact":"<12 words","responsible_team":"Procurement"},
+    {"id":"REC-003","priority":"P3","action":"<12 words","rationale":"<12 words",
+     "timeline":"2 weeks","expected_impact":"<12 words","responsible_team":"Operations"}
   ],
   "overall_risk_score": 75,
-  "risk_breakdown": {"supplier_risk": 80, "shipment_risk": 70, "inventory_risk": 75},
-  "executive_summary": "25 words max for management.",
-  "immediate_actions_required": true,
+  "executive_summary": "<20 words for management",
   "confidence_score": 0.85
 }"""
 

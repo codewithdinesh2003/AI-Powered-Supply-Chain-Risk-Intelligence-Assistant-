@@ -7,7 +7,7 @@ const TECH_STACK = [
   { name: 'LangSmith', role: 'Observability', color: 'bg-purple-100 text-purple-700' },
   { name: 'ChromaDB', role: 'Vector Store', color: 'bg-orange-100 text-orange-700' },
   { name: 'MySQL', role: 'Structured Data', color: 'bg-blue-100 text-blue-700' },
-  { name: 'OpenAI GPT-4o', role: 'LLM Agents', color: 'bg-slate-100 text-slate-700' },
+  { name: 'GPT-4o-mini (ArshnivLabs)', role: 'LLM Agents', color: 'bg-slate-100 text-slate-700' },
   { name: 'BM25 + CrossEncoder', role: 'Hybrid Retrieval', color: 'bg-amber-100 text-amber-700' },
   { name: 'DeepEval', role: 'Quality Evaluation', color: 'bg-pink-100 text-pink-700' },
   { name: 'React + Vite', role: 'Frontend', color: 'bg-cyan-100 text-cyan-700' },

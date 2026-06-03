@@ -147,6 +147,17 @@ async def get_kpis(
             },
             "shipment_on_time_rate": on_time_rate,
             "shipment_records_analyzed": int(total_shipments),
+            "shipment_status_distribution": {
+                row[0]: row[1]
+                for row in (
+                    await db.execute(
+                        select(Incident.shipment_status, func.count(Incident.id))
+                        .where(Incident.shipment_status.is_not(None))
+                        .group_by(Incident.shipment_status)
+                    )
+                ).all()
+                if row[0]
+            },
             "ai_queries": {
                 "today": queries_today,
                 "avg_quality_score": round(float(avg_eval or 0), 2) if avg_eval else None,

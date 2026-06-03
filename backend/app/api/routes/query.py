@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,34 @@ from app.utils.guardrails import validate_query
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+# ── DeepEval background evaluation ───────────────────────────────────────────
+
+async def _run_deepeval_background(
+    session_id: str, query: str, response: str, context: list
+) -> None:
+    """Run DeepEval metrics in background after every completed query."""
+    try:
+        from app.evaluation.deepeval_metrics import evaluate_response
+        from app.database.connection import get_db_session
+        from app.database.models import EvaluationResult
+
+        result = await evaluate_response(query, response, context)
+        async with get_db_session() as db:
+            record = EvaluationResult(
+                id=str(uuid.uuid4()),
+                session_id=session_id,
+                answer_relevancy=result.answer_relevancy,
+                faithfulness=result.faithfulness,
+                contextual_recall=result.contextual_recall,
+                contextual_precision=result.contextual_precision,
+            )
+            db.add(record)
+            await db.commit()
+        logger.info("DeepEval background evaluation saved for session %s", session_id)
+    except Exception as exc:
+        logger.warning("DeepEval background task failed (non-fatal): %s", exc)
 
 _PIPELINE_TIMEOUT_S = 90   # hard kill if entire pipeline exceeds this
 
@@ -90,6 +118,7 @@ async def _save_session(
 @router.post("/stream")
 async def stream_query(
     request: QueryRequest,
+    background_tasks: BackgroundTasks,
     current_user: Optional[User] = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ):
@@ -178,6 +207,23 @@ async def stream_query(
             )
         except Exception as exc:
             logger.warning("Session save failed (non-fatal): %s", exc)
+
+        # Auto-trigger DeepEval evaluation in the background
+        if final_event:
+            data         = final_event.get("data", {})
+            response_txt = data.get("final_response", "")
+            ctx_texts    = [
+                d.get("text", "")
+                for d in (data.get("retrieved_incidents") or [])[:5]
+            ]
+            if response_txt:
+                background_tasks.add_task(
+                    _run_deepeval_background,
+                    session_id=session_id,
+                    query=validated_query,
+                    response=response_txt,
+                    context=ctx_texts,
+                )
 
     return StreamingResponse(
         event_generator(),

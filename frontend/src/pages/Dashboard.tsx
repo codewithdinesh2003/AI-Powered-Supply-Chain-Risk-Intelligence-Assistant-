@@ -1,13 +1,19 @@
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, Building2, Package, TrendingUp, Upload } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { dashboardApi } from '../api/client'
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend,
+} from 'recharts'
+import { dashboardApi, suppliersApi } from '../api/client'
 import { Card, KPICard, SectionHeader } from '../components/ui/Card'
 import { SeverityBadge } from '../components/ui/Badge'
 import { PageLoader } from '../components/ui/Spinner'
 import { Table } from '../components/ui/Table'
 import type { AlertItem } from '../types'
 import { formatDistanceToNow } from 'date-fns'
+
+const SHIPMENT_COLORS = ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', '#6B7280']
 
 function RiskMeter({ score }: { score: number }) {
   const color = score >= 75 ? '#EF4444' : score >= 50 ? '#F97316' : score >= 25 ? '#F59E0B' : '#10B981'
@@ -54,10 +60,24 @@ export default function Dashboard() {
     queryFn: () => dashboardApi.alerts(10),
     refetchInterval: 30_000,
   })
+  const { data: suppliers = [] } = useQuery({
+    queryKey: ['suppliers-chart'],
+    queryFn: () => suppliersApi.list({ limit: 5 }),
+  })
 
   if (isLoading) return <PageLoader label="Loading dashboard…" />
 
   const bySeverity = kpis?.active_incidents.by_severity ?? {}
+
+  // Chart data
+  const supplierChartData = (suppliers as any[]).slice(0, 5).map((s: any) => ({
+    name: s.name,
+    reliability_score: s.reliability_score ?? 0,
+  }))
+  const shipmentDistribution: Record<string, number> = (kpis as any)?.shipment_status_distribution ?? {}
+  const shipmentChartData = Object.entries(shipmentDistribution).map(([k, v]) => ({
+    name: k, value: v as number,
+  }))
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -111,6 +131,42 @@ export default function Dashboard() {
           icon={<Package size={18} />}
           valueColor={(kpis?.shipment_on_time_rate ?? 100) < 70 ? 'text-orange-500' : 'text-green-600'}
         />
+      </div>
+
+      {/* ── Charts row: Supplier Reliability + Shipment Status ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <SectionHeader title="Supplier Reliability" subtitle="Score by supplier (0–100)" />
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={supplierChartData} margin={{ left: -20 }}>
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} tickFormatter={(v) => v.split(' ').slice(-1)[0]} />
+              <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+              <Tooltip formatter={(v: number) => [`${v.toFixed(0)}/100`, 'Reliability']} />
+              <Bar dataKey="reliability_score" radius={[4, 4, 0, 0]} fill="#1E6FD9" />
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+
+        <Card>
+          <SectionHeader title="Shipment Status" subtitle="Distribution across all records" />
+          {shipmentChartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <PieChart>
+                <Pie data={shipmentChartData} cx="50%" cy="50%"
+                  innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="value">
+                  {shipmentChartData.map((_, i) => (
+                    <Cell key={i} fill={SHIPMENT_COLORS[i % SHIPMENT_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(v: number, name: string) => [v, name]} />
+                <Legend iconSize={10} iconType="circle"
+                  formatter={(v) => <span style={{ fontSize: 11 }}>{v}</span>} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-slate-400 text-sm text-center py-12">No shipment data yet.</p>
+          )}
+        </Card>
       </div>
 
       {/* ── Alert feed ── */}

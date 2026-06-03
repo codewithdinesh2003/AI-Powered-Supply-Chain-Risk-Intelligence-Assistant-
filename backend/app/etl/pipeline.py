@@ -16,6 +16,11 @@ from app.etl.schemas import CANONICAL_FIELDS
 from app.etl.transformer import Transformer
 from app.etl.validator import ValidationResult, Validator
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.agents.anomaly_detector import AnomalyEvent
+
 logger = logging.getLogger(__name__)
 
 ProgressFn = Optional[Callable[[str, int], None]]  # (step_label, pct)
@@ -60,6 +65,44 @@ class ETLResult:
 # ── In-memory ETL job store (shared with API route) ──────────────────────────
 
 etl_jobs: Dict[str, Dict[str, Any]] = {}
+
+
+async def _insert_anomaly_incidents(anomalies: List["AnomalyEvent"]) -> None:
+    """Persist AnomalyEvent objects as open Incident rows so they appear in AlertFeed."""
+    from app.database.connection import get_db_session
+    from app.database.models import Incident, IncidentCategory, ResolutionStatus, SeverityLevel
+
+    sev_map = {
+        "critical": SeverityLevel.critical,
+        "high":     SeverityLevel.high,
+        "medium":   SeverityLevel.medium,
+        "low":      SeverityLevel.low,
+    }
+    cat_map = {
+        "defect_spike":        IncidentCategory.supplier,
+        "stockout_risk":       IncidentCategory.inventory,
+        "trend":               IncidentCategory.shipment,
+        "statistical_outlier": IncidentCategory.supplier,
+    }
+
+    async with get_db_session() as db:
+        for a in anomalies:
+            incident = Incident(
+                id=str(uuid.uuid4()),
+                incident_code=f"ANO-{a.sku[:6].upper()}-{uuid.uuid4().hex[:4].upper()}",
+                title=f"{a.sku}: {a.description[:80]}",
+                description=a.description,
+                severity=sev_map.get(a.severity, SeverityLevel.high),
+                category=cat_map.get(a.anomaly_type, IncidentCategory.supplier),
+                supplier_ref=a.supplier_name if a.supplier_name not in ("", "Multiple") else None,
+                warehouse_location=a.location if a.location not in ("", "Multiple") else None,
+                impact_score=90.0 if a.severity == "critical" else 70.0,
+                resolution_status=ResolutionStatus.open,
+                occurred_at=datetime.now(timezone.utc),
+            )
+            db.add(incident)
+        await db.commit()
+    logger.info("Inserted %d anomaly incidents into MySQL.", len(anomalies))
 
 
 def _set_job(job_id: str, **kwargs) -> None:
@@ -124,9 +167,9 @@ class ETLPipeline:
                 anomalies = AnomalyDetector().detect(enriched_df)
                 _progress(f"Detected {len(anomalies)} anomalies.", 50)
                 if anomalies:
-                    logger.info("Anomaly detection: %d events — %s critical",
-                                len(anomalies),
-                                sum(1 for a in anomalies if a.severity == "critical"))
+                    n_crit = sum(1 for a in anomalies if a.severity == "critical")
+                    logger.info("Anomaly detection: %d events — %d critical", len(anomalies), n_crit)
+                    await _insert_anomaly_incidents(anomalies)
             except Exception as _anom_exc:
                 logger.warning("Anomaly detection failed (non-fatal): %s", _anom_exc)
 
