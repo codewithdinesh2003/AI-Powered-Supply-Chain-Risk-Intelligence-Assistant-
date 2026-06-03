@@ -88,12 +88,12 @@ export default function Architecture() {
             </div>
             <Arrow />
             <div className="flex flex-col gap-2">
-              <ArchNode label="Supplier Risk" sub="GPT-4o" color="bg-red-50 border-red-200" />
-              <ArchNode label="Shipment Analysis" sub="GPT-4o" color="bg-orange-50 border-orange-200" />
-              <ArchNode label="Inventory Intel" sub="GPT-4o" color="bg-amber-50 border-amber-200" />
+              <ArchNode label="Supplier Risk" sub="GPT-4o-mini" color="bg-red-50 border-red-200" />
+              <ArchNode label="Shipment Analysis" sub="GPT-4o-mini" color="bg-orange-50 border-orange-200" />
+              <ArchNode label="Inventory Intel" sub="GPT-4o-mini" color="bg-amber-50 border-amber-200" />
             </div>
             <Arrow />
-            <ArchNode label="Recommendation" sub="GPT-4o" color="bg-blue-50 border-blue-200" />
+            <ArchNode label="Recommendation" sub="GPT-4o-mini" color="bg-blue-50 border-blue-200" />
             <Arrow />
             <ArchNode label="Evaluator" sub="LLM Judge + DeepEval" color="bg-green-50 border-green-200" />
             <Arrow label="SSE" />

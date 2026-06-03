@@ -253,7 +253,8 @@ export function createQueryStream(
   request: QueryRequest,
   onEvent: (event: Record<string, unknown>) => void,
   onDone: () => void,
-  onError: (err: Error) => void
+  onError: (err: Error) => void,
+  onSessionId?: (sessionId: string) => void
 ): () => void {
   const controller = new AbortController()
 
@@ -276,6 +277,12 @@ export function createQueryStream(
       })
 
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
+      // Capture the server-assigned session ID from response header
+      const sessionId = response.headers.get('X-Session-Id')
+      if (sessionId && onSessionId) {
+        onSessionId(sessionId)
+      }
 
       const reader = response.body!.getReader()
       const decoder = new TextDecoder()

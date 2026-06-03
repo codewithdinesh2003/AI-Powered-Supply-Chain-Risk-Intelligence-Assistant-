@@ -372,6 +372,7 @@ export default function QueryConsole() {
     const stop = createQueryStream(
       { query },
       (raw) => {
+        /* existing handler below */
         const event = raw as {
           type: string; agent: string; data: Record<string, unknown>
           timestamp: string; tokens_used?: number; total_elapsed_ms?: number
@@ -406,7 +407,7 @@ export default function QueryConsole() {
           case 'final_result': {
             const d = event.data as Record<string, unknown>
             setCurrentResult({
-              session_id:          '',
+              session_id:          sessionId,   // Bug Fix 1: real ID from X-Session-Id header
               query,
               recommendations:     (d.recommendations as any[]) ?? [],
               risk_score:          d.risk_score as number | null,
@@ -426,7 +427,8 @@ export default function QueryConsole() {
         }
       },
       () => { setQueryStatus('done'); setPipelineStatus('complete') },
-      () => { setQueryStatus('error'); setPipelineStatus('error') }
+      () => { setQueryStatus('error'); setPipelineStatus('error') },
+      (sid) => setSessionId(sid)   // Bug Fix 1: capture X-Session-Id from response header
     )
     return stop
   }, [resetPipeline, setQueryStatus, setPipelineStatus, setPipelineAgentStatus, addPipelineLog, setCurrentResult])
