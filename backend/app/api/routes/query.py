@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.graph import run_agent_graph_stream, run_agent_graph_sync
 from app.api.middleware import get_current_user, get_current_user_optional, ok
 from app.database.connection import get_db
-from app.database.models import QuerySession, User
+from app.database.models import QueryFeedback, QuerySession, User
 from app.schemas.query import QueryRequest, QuerySessionDetail, QuerySessionSummary
 from app.utils.guardrails import validate_query
 
@@ -295,3 +295,23 @@ async def get_session(
         raise HTTPException(status_code=404, detail="Session not found.")
 
     return ok(QuerySessionDetail.model_validate(session).model_dump())
+
+
+@router.post("/sessions/{session_id}/feedback", status_code=201)
+async def submit_feedback(
+    session_id: str,
+    rating:  int  = Body(..., ge=1, le=5),
+    helpful: bool = Body(...),
+    comment: str  = Body(""),
+    db: AsyncSession = Depends(get_db),
+):
+    fb = QueryFeedback(
+        id=str(uuid.uuid4()),
+        session_id=session_id,
+        overall_rating=rating,
+        helpful=helpful,
+        comment=comment or None,
+    )
+    db.add(fb)
+    await db.commit()
+    return ok({"submitted": True})

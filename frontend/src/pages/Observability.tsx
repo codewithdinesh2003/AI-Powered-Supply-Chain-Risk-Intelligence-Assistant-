@@ -41,7 +41,7 @@ export default function Observability() {
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard title="Avg Thinking Time" value={`${((metrics?.avg_latency_ms ?? 0) / 1000).toFixed(1)}s`} icon={<Clock size={18}/>} />
-        <KPICard title="Quality Score" value={`${((metrics?.avg_evaluation_score ?? 0) * 100).toFixed(0)}%`} icon={<Zap size={18}/>} />
+        <KPICard title="Quality Score" value={`${((metrics?.avg_evaluation_score ?? 0) * 10).toFixed(0)}%`} icon={<Zap size={18}/>} />
         <KPICard title="Queries Today" value={metrics?.total_queries_today ?? 0} icon={<Activity size={18}/>} />
         <KPICard title="AI Cost Today" value={`$${(metrics?.estimated_cost_today_usd ?? 0).toFixed(3)}`} icon={<DollarSign size={18}/>} />
       </div>

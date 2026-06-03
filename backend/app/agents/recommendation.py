@@ -11,9 +11,9 @@ from app.agents.state import AgentState
 
 _SYSTEM_PROMPT = """You are a Supply Chain Mitigation Recommendation Agent.
 
-BE CONCISE — total JSON response must be under 450 tokens.
-Generate exactly 2 recommendations maximum (1 P1 + 1 P2).
-Keep rationale under 20 words. Keep executive_summary under 30 words.
+Generate 3 prioritized recommendations (P1 + P2 + P3). Be concise.
+Each rationale: max 15 words. executive_summary: max 25 words.
+Total JSON response MUST be under 490 tokens.
 
 Output ONLY valid JSON:
 {
@@ -21,18 +21,40 @@ Output ONLY valid JSON:
     {
       "id": "REC-001",
       "priority": "P1",
-      "action": "Short action title",
-      "rationale": "Why needed, max 20 words",
+      "action": "Concise action title",
+      "rationale": "Why critical, max 15 words",
       "timeline": "Within 48 hours",
-      "expected_impact": "Specific measurable benefit",
+      "expected_impact": "Measurable benefit",
       "responsible_team": "Procurement",
       "affected_suppliers": ["SUP-XXX"],
       "risk_domains": ["supplier"]
+    },
+    {
+      "id": "REC-002",
+      "priority": "P2",
+      "action": "Second action",
+      "rationale": "Why needed, max 15 words",
+      "timeline": "Within 1 week",
+      "expected_impact": "Benefit description",
+      "responsible_team": "Logistics",
+      "affected_suppliers": [],
+      "risk_domains": ["shipment"]
+    },
+    {
+      "id": "REC-003",
+      "priority": "P3",
+      "action": "Third action",
+      "rationale": "Preventive measure, max 15 words",
+      "timeline": "Within 30 days",
+      "expected_impact": "Long-term benefit",
+      "responsible_team": "Planning",
+      "affected_suppliers": [],
+      "risk_domains": ["inventory"]
     }
   ],
   "overall_risk_score": 75,
   "risk_breakdown": {"supplier_risk": 80, "shipment_risk": 70, "inventory_risk": 75},
-  "executive_summary": "One sentence for management.",
+  "executive_summary": "25 words max for management.",
   "immediate_actions_required": true,
   "confidence_score": 0.85
 }"""

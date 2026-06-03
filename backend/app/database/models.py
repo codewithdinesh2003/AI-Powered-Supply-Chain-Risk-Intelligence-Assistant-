@@ -295,6 +295,22 @@ class EvaluationResult(Base):
     )
 
 
+class QueryFeedback(Base):
+    """User feedback (thumbs up/down + optional comment) on a query session."""
+
+    __tablename__ = "query_feedback"
+
+    id: Mapped[str] = mapped_column(CHAR(36), primary_key=True, default=_uuid)
+    session_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    overall_rating: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # 1-5
+    helpful: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+
+
 class CompanyMapping(Base):
     """Saved LLM-detected column mappings per company for automatic re-use."""
 

@@ -117,8 +117,21 @@ class ETLPipeline:
                    or (enriched_df[f].dtype == object and enriched_df[f].eq("").all())
             ]
 
+            # ── 4b. Anomaly detection (runs on enriched data, non-blocking) ─
+            _progress("Running anomaly detection...", 48)
+            try:
+                from app.agents.anomaly_detector import AnomalyDetector
+                anomalies = AnomalyDetector().detect(enriched_df)
+                _progress(f"Detected {len(anomalies)} anomalies.", 50)
+                if anomalies:
+                    logger.info("Anomaly detection: %d events — %s critical",
+                                len(anomalies),
+                                sum(1 for a in anomalies if a.severity == "critical"))
+            except Exception as _anom_exc:
+                logger.warning("Anomaly detection failed (non-fatal): %s", _anom_exc)
+
             # ── 5. Validate ────────────────────────────────────────────────
-            _progress("Validating rows...", 50)
+            _progress("Validating rows...", 52)
             val_result: ValidationResult = self._validator.validate(enriched_df)
             valid_df = self._validator.filter_valid_rows(enriched_df, val_result)
 

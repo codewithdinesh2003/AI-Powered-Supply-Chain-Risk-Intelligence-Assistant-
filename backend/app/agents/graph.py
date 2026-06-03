@@ -326,11 +326,12 @@ async def run_agent_graph_stream(
     global_start  = time.perf_counter()
 
     accumulated: Dict[str, Any] = {
-        "recommendations":   [],
-        "risk_score":        None,
-        "final_response":    None,
-        "evaluation_scores": None,
-        "tokens_used":       0,
+        "recommendations":    [],
+        "risk_score":         None,
+        "final_response":     None,
+        "evaluation_scores":  None,
+        "tokens_used":        0,
+        "retrieved_incidents": [],
     }
 
     async for chunk in graph.astream(initial_state):
@@ -359,15 +360,20 @@ async def run_agent_graph_stream(
             if field in node_output and node_output[field] is not None:
                 accumulated[field] = node_output[field]
 
+        # retrieved_incidents come from the retrieval node
+        if node_output.get("retrieved_incidents"):
+            accumulated["retrieved_incidents"] = node_output["retrieved_incidents"]
+
     total_ms = int((time.perf_counter() - global_start) * 1000)
     yield {
         "type":  "final_result",
         "agent": "system",
         "data": {
-            "recommendations":   accumulated["recommendations"],
-            "risk_score":        accumulated["risk_score"],
-            "final_response":    accumulated["final_response"],
-            "evaluation_scores": accumulated["evaluation_scores"],
+            "recommendations":    accumulated["recommendations"],
+            "risk_score":         accumulated["risk_score"],
+            "final_response":     accumulated["final_response"],
+            "evaluation_scores":  accumulated["evaluation_scores"],
+            "retrieved_incidents":accumulated["retrieved_incidents"],
         },
         "timestamp":        datetime.now(timezone.utc).isoformat(),
         "total_elapsed_ms": total_ms,
